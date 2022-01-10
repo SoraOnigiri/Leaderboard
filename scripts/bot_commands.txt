@@ -1,0 +1,7 @@
+!BUY [Ticker],[Price(optional)],[Reasoning(optional)]
+!CLOSE [Trade ID],[Close Price],[Reasoning(optional)]
+!view_open_trades    - View open trades. 
+!view_closed_trades  - View closed trades. 
+!total_profit        - View total profits. 
+!delete_id           - Delete a specfic trade. 
+!leaderboard         - Display Trading leaderboard. 
