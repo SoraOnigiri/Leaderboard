@@ -17,5 +17,5 @@ import json
 
 # with open("tokens.json", "w") as outfile:
 #     json.dump(tokens, outfile)
-with open("help.json", "r") as commands:
-    print(json.load(commands))
+with open("coins.json", "r") as commands:
+    print(len(json.load(commands)))
