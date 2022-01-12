@@ -21,4 +21,4 @@ async def setup():
 
 bot.loop.create_task(setup())
 
-bot.run(os.getenv("test"))
+bot.run(os.getenv("LEADERBOT"))

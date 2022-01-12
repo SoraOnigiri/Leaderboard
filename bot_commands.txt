@@ -1,5 +1,6 @@
-!BUY [Ticker],[Price(optional)],[Reasoning(optional)]
-!CLOSE [Trade ID],[Close Price],[Reasoning(optional)]
+!join                - Join the trading leaderboard.
+!buy   [Ticker],[Price(optional)],[Reasoning(optional)]
+!close [Trade ID],[Close Price],[Reasoning(optional)]
 !view_open_trades    - View open trades. 
 !view_closed_trades  - View closed trades. 
 !total_profit        - View total profits. 
