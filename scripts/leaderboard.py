@@ -776,7 +776,7 @@ class User(commands.Cog):
 
             user = i["name"]
 
-            total = i["total_profit"]
+            total = round(i["total_profit"], 2)
 
             trade = await self.get_trade_number(i["userid"])
 
@@ -792,7 +792,7 @@ class User(commands.Cog):
             total_space = ""
             for i in range(total_space_num):
                 total_space = total_space + " "
-            line = f"{rank}. {user}{user_space}{round(total,2)}%{total_space}{trade}\n"
+            line = f"{rank}. {user}{user_space}{total}%{total_space}{trade}\n"
 
             _leaderboard = _leaderboard + line
 
