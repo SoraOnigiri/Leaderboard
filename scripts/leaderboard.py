@@ -1040,7 +1040,7 @@ class User(commands.Cog):
             user = i["name"]
             balance = round(i["balance"], 2)
             debt = round(i["debt"], 2)
-            total = rount(((balance - debt) / 100000) * 100, 2)
+            total = round(((balance - debt) / 100000) * 100, 2)
 
             trade = await self.get_trade_number(i["userid"], str(ctx.message.guild.id))
 
