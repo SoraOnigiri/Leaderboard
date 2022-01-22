@@ -1,4 +1,5 @@
-!join                - Join the trading leaderboard.
-!buy    [Ticker],[Price(optional)],[Reasoning(optional)]
-!close  [Trade ID],[Close Price(optional)],[Reasoning(optional)]
-!delete [Trade ID]   - Delete a specfic trade. 
+!join   - Join the trading leaderboard.
+!buy    [Ticker],[Quantity],[Price(optional)],                                       .       [Reasoning(optional)]
+!sell   [Ticker],[Quantity],[Price(optional)],                                       .       [Reasoning(optional)]
+!close  [Trade ID],[Close Price(optional)],                               .       [Reasoning(optional)]
+!delete [Trade ID] - Delete a specfic trade. 

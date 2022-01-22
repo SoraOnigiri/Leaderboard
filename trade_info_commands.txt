@@ -1,5 +1,6 @@
 !join                - Join the trading leaderboard.
-!view_open_trades    - View open trades. 
-!view_closed_trades  - View closed trades. 
+!balance             - View your current balance.
+!open_trades         - View open trades. 
+!closed_trades       - View closed trades. 
 !total_profit        - View total profits. 
 !leaderboard         - Display Trading leaderboard. 

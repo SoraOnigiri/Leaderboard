@@ -1,0 +1,10 @@
+!help                        - Reveal channel specific commands
+!help2                       - Reveal game mod commands
+!start_game                  - Initiate a game instance in a new server
+!set_trade_channel           - Set the trade channel (REQUIRED)
+!set_trade_info_channel      - Set the trade info channel (REQUIRED)
+!remove_trade_channel        - Remove a channel 
+!remove_trade_info_channel   - Remove a channel 
+!reset_account               - User may reset their account in the event of a  .                              Game Over
+Game Start: The game starts with the !start_game command. For the game to function properly, you must establish the trade channel and trade info channel by using the !set_trade_channel and !set_trade_info_channel commands.
+Game Over: This is defined as a user whose balance is 0 or less and either has no open "LONG" trades or the value of the Open "LONG" positions do not offset the balance.
