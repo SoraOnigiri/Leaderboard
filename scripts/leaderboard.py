@@ -423,7 +423,7 @@ class User(commands.Cog):
             # verify quantity    ***********************************************************  Need to update to take in percentages
             try:
                 quantity = float(var[1])
-                if quantity < 0:
+                if quantity <= 0:
                     embed = discord.Embed(
                         description="```\nInvalid quantity.\n```",
                         color=discord.Color.red(),
@@ -448,7 +448,7 @@ class User(commands.Cog):
                 else:
                     try:
                         ticker_price = float(var[2])
-                        if ticker_price < 0:
+                        if ticker_price <= 0:
                             embed = discord.Embed(
                                 description="```\nInvalid price.\n```",
                                 color=discord.Color.red(),
@@ -556,7 +556,7 @@ class User(commands.Cog):
             # verify quantity    ***********************************************************  Need to update to take in percentages
             try:
                 quantity = float(var[1])
-                if quantity < 0:
+                if quantity <= 0:
                     embed = discord.Embed(
                         description="```\nInvalid quantity.\n```",
                         color=discord.Color.red(),
@@ -581,7 +581,7 @@ class User(commands.Cog):
                 else:
                     try:
                         ticker_price = float(var[2])
-                        if ticker_price < 0:
+                        if ticker_price <= 0:
                             embed = discord.Embed(
                                 description="```\nInvalid price.\n```",
                                 color=discord.Color.red(),
@@ -714,7 +714,7 @@ class User(commands.Cog):
                 else:
                     try:
                         close_price = float(var[1])
-                        if close_price < 0:
+                        if close_price <= 0:
                             embed = discord.Embed(
                                 description="```\nInvalid Close price.\n```",
                                 color=discord.Color.red(),

@@ -1,5 +1,5 @@
 !help                        - Reveal channel specific commands
-!help2                       - Reveal game mod commands
+!help2                       - Reveal game mod commands (These Commands)
 !start_game                  - Initiate a game instance in a new server
 !set_trade_channel           - Set the trade channel (REQUIRED)
 !set_trade_info_channel      - Set the trade info channel (REQUIRED)
