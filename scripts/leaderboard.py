@@ -289,8 +289,11 @@ class User(commands.Cog):
     async def get_total_profit(self, userid, guild_id):
         tradeCol, userCol = self.setup(guild_id)
         user = userCol.find_one({"userid": userid})
-        total = user["total_profit"]
-        return round(total, 2)
+        balance = user["balance"]
+        debt = user["debt"]
+        percentage = ((balance - debt) / 100000) * 100
+
+        return round(percentage, 2)
 
     async def delete_trade(self, trade_id, guild_id):
         tradeCol, userCol = self.setup(guild_id)
@@ -1037,7 +1040,7 @@ class User(commands.Cog):
             user = i["name"]
             balance = round(i["balance"], 2)
             debt = round(i["debt"], 2)
-            total = round(i["total_profit"], 2)
+            total = rount(((balance - debt) / 100000) * 100, 2)
 
             trade = await self.get_trade_number(i["userid"], str(ctx.message.guild.id))
 
