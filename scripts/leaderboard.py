@@ -117,6 +117,8 @@ class User(commands.Cog):
         tradeCol, userCol = self.setup(guild_id)
         user = userCol.find_one({"userid": userid})
         balance = user["balance"]
+        if balance <= 0:
+            return True
         if (price * quantity) > balance:
             return True
         return False
@@ -198,9 +200,23 @@ class User(commands.Cog):
         return ticker
 
     async def get_balance(self, userid, guild_id):
+
         tradeCol, userCol = self.setup(guild_id)
         user = userCol.find_one({"userid": userid})
+
         return user["balance"]
+
+    async def get_total_balance(self, userid, guild_id):
+        tradeCol, userCol = self.setup(guild_id)
+        user = userCol.find_one({"userid": userid})
+        long_position = await self.get_long_position(userid, guild_id)
+        total = user["balance"] + long_position - user["debt"]
+        return total
+
+    async def get_debt(self, userid, guild_id):
+        tradeCol, userCol = self.setup(guild_id)
+        user = userCol.find_one({"userid": userid})
+        return user["debt"]
 
     async def open_trade(
         self, userid, quantity, time, price, ticker, reason, trade_type, guild_id
@@ -302,7 +318,14 @@ class User(commands.Cog):
         days = int(seconds / 86400)
         hours = (seconds % 86400) / 3600
         duration = f"{int(days)} day(s) and {round(hours,1)} hour(s)"
-        return profit, ticker, percent, duration
+        return (
+            profit,
+            ticker,
+            percent,
+            duration,
+            trade["quantity"],
+            trade["close_price"],
+        )
 
     async def update_profit(self, userid, percent, guild_id):
         tradeCol, userCol = self.setup(guild_id)
@@ -471,14 +494,32 @@ class User(commands.Cog):
             # input at this point is assumed to be >= 2
             # verify quantity    ***********************************************************  Need to update to take in percentages
             try:
-                quantity = float(var[1])
-                if quantity <= 0:
-                    embed = discord.Embed(
-                        description="```\nInvalid quantity.\n```",
-                        color=discord.Color.red(),
-                    )
-                    await ctx.send(embed=embed)
-                    return
+
+                if var[1].endswith("%"):
+
+                    try:
+
+                        qnum = var[1].split("%", 1)[0]  # 20% / 100 = 0.2
+
+                        qnum = float(qnum)
+                        qnum = qnum / 100
+
+                    except:
+                        embed = discord.Embed(
+                            description="```\nInvalid quantity.\n```",
+                            color=discord.Color.red(),
+                        )
+                        await ctx.send(embed=embed)
+                        return
+                else:
+                    quantity = float(var[1])
+                    if quantity <= 0:
+                        embed = discord.Embed(
+                            description="```\nInvalid quantity.\n```",
+                            color=discord.Color.red(),
+                        )
+                        await ctx.send(embed=embed)
+                        return
             except:
                 embed = discord.Embed(
                     description="```\nInvalid quantity.\n```",
@@ -523,6 +564,12 @@ class User(commands.Cog):
             userid = ctx.message.author.id
             opentime = int(time.time())
             trade_type = "long"
+
+            # Adjust quantity if percentage was used.
+            if var[1].endswith("%"):
+                user_balance = await self.get_balance(userid, str(ctx.message.guild.id))
+                portion = user_balance * qnum
+                quantity = portion / ticker_price
 
             # Check if the user has enough money for this transaction
             if self.isPoor(userid, ticker_price, quantity, str(ctx.message.guild.id)):
@@ -606,14 +653,32 @@ class User(commands.Cog):
 
             # verify quantity    ***********************************************************  Need to update to take in percentages
             try:
-                quantity = float(var[1])
-                if quantity <= 0:
-                    embed = discord.Embed(
-                        description="```\nInvalid quantity.\n```",
-                        color=discord.Color.red(),
-                    )
-                    await ctx.send(embed=embed)
-                    return
+
+                if var[1].endswith("%"):
+
+                    try:
+
+                        qnum = var[1].split("%", 1)[0]  # 20% / 100 = 0.2
+
+                        qnum = float(qnum)
+                        qnum = qnum / 100
+
+                    except:
+                        embed = discord.Embed(
+                            description="```\nInvalid quantity.\n```",
+                            color=discord.Color.red(),
+                        )
+                        await ctx.send(embed=embed)
+                        return
+                else:
+                    quantity = float(var[1])
+                    if quantity <= 0:
+                        embed = discord.Embed(
+                            description="```\nInvalid quantity.\n```",
+                            color=discord.Color.red(),
+                        )
+                        await ctx.send(embed=embed)
+                        return
             except:
                 embed = discord.Embed(
                     description="```\nInvalid quantity.\n```",
@@ -654,6 +719,12 @@ class User(commands.Cog):
             userid = ctx.message.author.id
             opentime = int(time.time())
             trade_type = "short"
+
+            # Adjust quantity if percentage was used.
+            if var[1].endswith("%"):
+                user_balance = await self.get_balance(userid, str(ctx.message.guild.id))
+                portion = user_balance * qnum
+                quantity = portion / ticker_price
 
             # Check if the user has enough money for this transaction
             if self.isAboveDebtLimit(
@@ -807,7 +878,14 @@ class User(commands.Cog):
             # 5. Call the close_trade function using tradeid, price, and reason.
             try:
                 close_time = int(time.time())
-                profit, ticker, percent, duration = await self.close_trade(
+                (
+                    profit,
+                    ticker,
+                    percent,
+                    duration,
+                    quantity,
+                    cp,
+                ) = await self.close_trade(
                     int(var[0]),
                     close_price,
                     reason,
@@ -840,7 +918,7 @@ class User(commands.Cog):
 
             # 7. send: Bot: Trade with ID 0 has been closed, ticker: $SNX profit: 100%, duration of trade: 1 day and 1 hour, with reasoning “My work is done”
             embed = discord.Embed(
-                description=f"```\nTrade with ID: {var[0]} has been closed. Ticker: ${ticker.upper()}, Profit: ${profit}({percent}%), Duration of trade: {duration}, with reasoning '{reason}'\n```",
+                description=f"```\nTrade with ID: {var[0]} has been closed. \nTicker: ${ticker.upper()}\nProfit: ${profit}({percent}%)\nDuration of trade: {duration}\nQuantity: {round(quantity,5)}\nClose Price: ${round(cp,2)}\nReasoning: '{reason}'\n```",
                 color=discord.Color.green(),
             )
             await ctx.send(embed=embed)
@@ -1077,7 +1155,7 @@ class User(commands.Cog):
         )  # users holds array of userid, name, total_profit in descending order
 
         # _leaderboard = "```\nUserAvailable BalanceDebtTotalProfitTradesUserAvailable BalanceDebtTotalP11234\n"
-        _leaderboard = "```\n[ LEADERBOARD ]\nUser                Avail Bal.   Debt        Total        Profit   Trades\n"
+        _leaderboard = "```\n[ LEADERBOARD ]\nUser                Total        Debt        Avail Bal.   Profit   Trades\n"
 
         # Loop through each user and display the user, total profit, and number of trades.
         # Call a function that counts the number of trades made by the user.
@@ -1133,7 +1211,7 @@ class User(commands.Cog):
                 debt_space = debt_space + " "
 
             # line = f"{rank}. {user}{user_space}${balance}{balance_space}${debt}{debt_space}{total}%{total_space}{trade}\n"
-            line = f"{rank}.{user}{user_space}${int(balance)}{balance_space}${int(debt)}{debt_space}${int(total_balance)}{total_balance_space}{round(total,3)}%{total_space}{trade}\n"
+            line = f"{rank}.{user}{user_space}${int(total_balance)}{total_balance_space}${int(debt)}{debt_space}${int(balance)}{balance_space}{round(total,3)}%{total_space}{trade}\n"
             _leaderboard = _leaderboard + line
 
         footer = "```"
@@ -1288,11 +1366,25 @@ class User(commands.Cog):
             )
             await ctx.send(embed=embed)
             return
+
         user_balance = await self.get_balance(
             ctx.message.author.id, str(ctx.message.guild.id)
         )
+        debt = await self.get_debt(ctx.message.author.id, str(ctx.message.guild.id))
+
+        total = await self.get_total_balance(
+            ctx.message.author.id, str(ctx.message.guild.id)
+        )
+
+        debt_space = ""
+        for i in range(13):
+            debt_space = debt_space + " "
+        total_space = ""
+        for i in range(4):
+            total_space = total_space + " "
+
         embed = discord.Embed(
-            description=f"```\nBalance: ${round(user_balance,5)}\n```",
+            description=f"```\nAvailable Balance: ${round(user_balance,5)}\nDebt: {debt_space}${debt}\nTotal Balance: {total_space}${total}\n```",
             color=discord.Color.dark_green(),
             title=f"{ctx.message.author.name}",
         )
