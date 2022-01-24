@@ -118,7 +118,19 @@ class User(commands.Cog):
         balance = user["balance"]
         debt = user["debt"]
         sale = price * quantity
-        if ((balance - debt) * 0.5) < (debt + sale):
+
+        open_long = tradeCol.find(
+            {"userid": userid, "isOpen": True, "deleted": False, "type": "long"}
+        )
+
+        long_position = 0
+
+        if len(list(open_long)) > 0:
+            for trade in open_long:
+                position = trade["quantity"] * trade["open_price"]
+                long_position = long_position + position
+
+        if ((balance + long_position - debt) * 0.5) < (debt + sale):
             return True
         return False
 
@@ -141,6 +153,25 @@ class User(commands.Cog):
             if liquidity <= 0:
                 return True
         return False
+
+    async def get_long_position(self, userid, guild_id):
+        tradeCol, userCol = self.setup(guild_id)
+        open_long = tradeCol.find(
+            {"userid": userid, "isOpen": True, "deleted": False, "type": "long"}
+        )
+
+        long_position = 0
+        length = len(list(open_long))
+        open_long = tradeCol.find(
+            {"userid": userid, "isOpen": True, "deleted": False, "type": "long"}
+        )
+        if length > 0:
+            for trade in open_long:
+
+                position = trade["quantity"] * trade["open_price"]
+                long_position = long_position + position
+
+        return long_position
 
     async def reset(self, userid, guild_id):
         tradeCol, userCol = self.setup(guild_id)
@@ -291,7 +322,10 @@ class User(commands.Cog):
         user = userCol.find_one({"userid": userid})
         balance = user["balance"]
         debt = user["debt"]
-        percentage = (((balance - debt) - 100000) / 100000) * 100
+
+        long_position = await self.get_long_position(userid, guild_id)
+
+        percentage = (((balance + long_position - debt) - 100000) / 100000) * 100
 
         return round(percentage, 2)
 
@@ -1028,7 +1062,8 @@ class User(commands.Cog):
             str(ctx.message.guild.id)
         )  # users holds array of userid, name, total_profit in descending order
 
-        _leaderboard = "```\nUser                     Balance        Debt           Total Profit     Trades\n"
+        # _leaderboard = "```\nUserAvailable BalanceDebtTotalProfitTradesUserAvailable BalanceDebtTotalP11234\n"
+        _leaderboard = "```\n[ LEADERBOARD ]\nUser                Avail Bal.   Debt        Total        Profit   Trades\n"
 
         # Loop through each user and display the user, total profit, and number of trades.
         # Call a function that counts the number of trades made by the user.
@@ -1040,38 +1075,51 @@ class User(commands.Cog):
             user = i["name"]
             balance = round(i["balance"], 2)
             debt = round(i["debt"], 2)
-            total = round((((balance - debt) - 100000) / 100000) * 100, 2)
+
+            long_position = await self.get_long_position(
+                i["userid"], str(ctx.message.guild.id)
+            )
+
+            total = round(
+                (((i["balance"] + long_position - i["debt"]) - 100000) / 100000) * 100,
+                2,
+            )
 
             trade = await self.get_trade_number(i["userid"], str(ctx.message.guild.id))
-
-            # Calculate space for User              25
-            user_space_num = 23 - len(user) - len(str(rank))
+            total_balance = i["balance"] + long_position - i["debt"]
+            # Calculate space for User              20
+            user_space_num = 19 - len(user) - len(str(rank))
 
             user_space = ""
             for i in range(user_space_num):
                 user_space = user_space + " "
 
-            # Calculate space for Total Profit      15
-            total_space_num = 14 - len(str(total))
+            # Calculate total balance space 12
+            total_balance_space = ""
+            tbs_num = 12 - len(str(round(total_balance, 2)))
+            for i in range(tbs_num):
+                total_balance_space = total_balance_space + " "
 
+            # Calculate space for Total Profit      10 - 10000.000%
+            total_space_num = 10 - len(str(round(total, 3)))
             total_space = ""
             for i in range(total_space_num):
                 total_space = total_space + " "
 
-            # Calculate space for Balance     15
+            # # Calculate space for available Balance     18
             balance_space = " "
-            balance_space_num = 14 - len(str(balance)) - 1
+            balance_space_num = 11 - len(str(round(balance, 2)))
             for i in range(balance_space_num):
                 balance_space = balance_space + " "
 
-            # Calculate space for Debt     15
+            # # Calculate space for Debt     13
             debt_space = " "
-            debt_space_num = 16 - len(str(debt)) + 1
+            debt_space_num = 10 - len(str(round(debt, 2)))
             for i in range(debt_space_num):
                 debt_space = debt_space + " "
 
-            line = f"{rank}. {user}{user_space}${balance}{balance_space}${debt}{debt_space}{total}%{total_space}{trade}\n"
-
+            # line = f"{rank}. {user}{user_space}${balance}{balance_space}${debt}{debt_space}{total}%{total_space}{trade}\n"
+            line = f"{rank}.{user}{user_space}${round(balance,2)}{balance_space}${round(debt,2)}{debt_space}${round(total_balance,2)}{total_balance_space}{round(total,3)}%{total_space}{trade}\n"
             _leaderboard = _leaderboard + line
 
         footer = "```"
