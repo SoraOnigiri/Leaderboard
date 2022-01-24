@@ -35,8 +35,6 @@ class User(commands.Cog):
                 tokens[token["symbol"]].append(token["name"])
                 continue
             tokens[token["symbol"]].append(token["name"])
-        with open("coin.json", "w") as outfile:
-            json.dump(tokens, outfile)
         return tokens
 
     def get_database(self):
