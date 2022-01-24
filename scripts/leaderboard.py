@@ -298,7 +298,6 @@ class User(commands.Cog):
         user = userCol.find_one({"userid": trade["userid"]})
         # Update user balance and debt accordingly
         if trade["type"] == "long":
-            user_balance = user["balance"]
             quant = trade["quantity"]
             uid = user["userid"]
             new_balance = user["balance"] + (quant * price)
@@ -324,7 +323,7 @@ class User(commands.Cog):
             percent,
             duration,
             trade["quantity"],
-            trade["close_price"],
+            price,
         )
 
     async def update_profit(self, userid, percent, guild_id):
@@ -1384,7 +1383,7 @@ class User(commands.Cog):
             total_space = total_space + " "
 
         embed = discord.Embed(
-            description=f"```\nAvailable Balance: ${round(user_balance,5)}\nDebt: {debt_space}${debt}\nTotal Balance: {total_space}${total}\n```",
+            description=f"```\nAvailable Balance: ${round(user_balance,5)}\nDebt: {debt_space}${round(debt,5)}\nTotal Balance: {total_space}${round(total,5)}\n```",
             color=discord.Color.dark_green(),
             title=f"{ctx.message.author.name}",
         )
