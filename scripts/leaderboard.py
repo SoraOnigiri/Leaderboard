@@ -25,10 +25,18 @@ class User(commands.Cog):
 
     def get_coingecko_tokens(self):
         # CoinGecko token database
+
         r = requests.get("https://api.coingecko.com/api/v3/coins/list")
+
         tokens = {}
         for token in r.json():
-            tokens[token["symbol"]] = {"id": token["id"], "name": token["name"]}
+            if token["symbol"] not in tokens:
+                tokens[token["symbol"]] = []
+                tokens[token["symbol"]].append(token["name"])
+                continue
+            tokens[token["symbol"]].append(token["name"])
+        with open("coin.json", "w") as outfile:
+            json.dump(tokens, outfile)
         return tokens
 
     def get_database(self):
@@ -64,17 +72,20 @@ class User(commands.Cog):
         userCol.insert_one(user)
 
     def get_token_price(self, ticker):
-        id = self.cg_tokens[ticker]["id"]
-        currency = "usd"
-        pto = int(time.time())
-        pfrom = pto - 1000
+
+        ids = self.cg_tokens[ticker][0]
+
+        if len(self.cg_tokens[ticker]) > 1:
+            print("get_token_price: There is more than 1 ticker that exists.")
 
         r = requests.get(
-            f"https://api.coingecko.com/api/v3/coins/{id}/market_chart/range?vs_currency={currency}&from={str(pfrom)}&to={str(pto)}"
+            f"https://api.coingecko.com/api/v3/simple/price?ids={ids}&vs_currencies=usd"
         )
+
         results = r.json()
-        # {"prices":[1641567677939,3226.1455591491567],[1641568160652,3196.3101680587015],[1641568388161,3189.864689613417]}
-        price = float(results["prices"][-1][1])
+
+        # {"ethereum": {"usd": 2204.22}}
+        price = float(results[ids.lower()]["usd"])
         return price
 
     def trade_exists(self, trade_id, guild_id):
@@ -446,8 +457,11 @@ class User(commands.Cog):
                 await ctx.send(embed=embed)
                 return
             # 1. Check if Ticker is valid
+
             if ticker not in self.cg_tokens:
+
                 self.cg_tokens = self.get_coingecko_tokens()
+
                 if ticker not in self.cg_tokens:
                     embed = discord.Embed(
                         description=f"```\n{var[0]} is not a valid ticker.\n```",
@@ -477,7 +491,9 @@ class User(commands.Cog):
 
             # Quantity verified. Verify token price or find it.
             if input_count == 2:
+
                 ticker_price = self.get_token_price(ticker)
+
                 reason = ""
             if input_count >= 3:
                 if var[2] == "":
@@ -1096,7 +1112,7 @@ class User(commands.Cog):
 
             # Calculate total balance space 12
             total_balance_space = ""
-            tbs_num = 12 - len(str(round(total_balance, 2)))
+            tbs_num = 12 - len(str(int(total_balance)))
             for i in range(tbs_num):
                 total_balance_space = total_balance_space + " "
 
@@ -1108,18 +1124,18 @@ class User(commands.Cog):
 
             # # Calculate space for available Balance     18
             balance_space = " "
-            balance_space_num = 11 - len(str(round(balance, 2)))
+            balance_space_num = 11 - len(str(int(balance)))
             for i in range(balance_space_num):
                 balance_space = balance_space + " "
 
             # # Calculate space for Debt     13
             debt_space = " "
-            debt_space_num = 10 - len(str(round(debt, 2)))
+            debt_space_num = 10 - len(str(int(debt)))
             for i in range(debt_space_num):
                 debt_space = debt_space + " "
 
             # line = f"{rank}. {user}{user_space}${balance}{balance_space}${debt}{debt_space}{total}%{total_space}{trade}\n"
-            line = f"{rank}.{user}{user_space}${round(balance,2)}{balance_space}${round(debt,2)}{debt_space}${round(total_balance,2)}{total_balance_space}{round(total,3)}%{total_space}{trade}\n"
+            line = f"{rank}.{user}{user_space}${int(balance)}{balance_space}${int(debt)}{debt_space}${int(total_balance)}{total_balance_space}{round(total,3)}%{total_space}{trade}\n"
             _leaderboard = _leaderboard + line
 
         footer = "```"
