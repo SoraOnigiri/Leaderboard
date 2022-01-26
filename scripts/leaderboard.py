@@ -32,9 +32,9 @@ class User(commands.Cog):
         for token in r.json():
             if token["symbol"] not in tokens:
                 tokens[token["symbol"]] = []
-                tokens[token["symbol"]].append(token["name"])
+                tokens[token["symbol"]].append(token["id"])
                 continue
-            tokens[token["symbol"]].append(token["name"])
+            tokens[token["symbol"]].append(token["id"])
         return tokens
 
     def get_database(self):
@@ -71,20 +71,22 @@ class User(commands.Cog):
 
     def get_token_price(self, ticker):
 
-        ids = self.cg_tokens[ticker][0]
+        # if len(self.cg_tokens[ticker]) > 1:
+        #     print("get_token_price: There is more than 1 ticker that exists.")
 
-        if len(self.cg_tokens[ticker]) > 1:
-            print("get_token_price: There is more than 1 ticker that exists.")
+        for i in self.cg_tokens[ticker]:
 
-        r = requests.get(
-            f"https://api.coingecko.com/api/v3/simple/price?ids={ids}&vs_currencies=usd"
-        )
+            r = requests.get(
+                f"https://api.coingecko.com/api/v3/simple/price?ids={i}&vs_currencies=usd"
+            )
+            results = r.json()
 
-        results = r.json()
+            try:
+                price = float(results[i.lower()]["usd"])
 
-        # {"ethereum": {"usd": 2204.22}}
-        price = float(results[ids.lower()]["usd"])
-        return price
+                return round(price, 5)
+            except:
+                continue
 
     def trade_exists(self, trade_id, guild_id):
         tradeCol, userCol = self.setup(guild_id)
@@ -123,25 +125,16 @@ class User(commands.Cog):
             return True
         return False
 
-    def isAboveDebtLimit(self, userid, price, quantity, guild_id):
+    async def isAboveDebtLimit(self, userid, price, quantity, guild_id):
         tradeCol, userCol = self.setup(guild_id)
         user = userCol.find_one({"userid": userid})
         balance = user["balance"]
         debt = user["debt"]
         sale = price * quantity
 
-        open_long = tradeCol.find(
-            {"userid": userid, "isOpen": True, "deleted": False, "type": "long"}
-        )
+        long_position = await self.get_long_position(userid, guild_id)
 
-        long_position = 0
-
-        if len(list(open_long)) > 0:
-            for trade in open_long:
-                position = trade["quantity"] * trade["open_price"]
-                long_position = long_position + position
-
-        if ((balance + long_position - debt) * 0.5) < (debt + sale):
+        if ((balance + long_position - debt) * 0.5) < (sale):
             return True
         return False
 
@@ -302,7 +295,7 @@ class User(commands.Cog):
             uid = user["userid"]
             new_balance = user["balance"] + (quant * price)
             q = {"userid": uid}
-            upd = {"$set": {"balance": new_balance}}
+            upd = {"$set": {"balance": round(new_balance, 5)}}
             userCol.update_one(q, upd)
         elif trade["type"] == "short":
             old_debt = trade["open_price"] * trade["quantity"]
@@ -310,7 +303,9 @@ class User(commands.Cog):
             new_balance = user["balance"] - (price * trade["quantity"])
             uid = user["userid"]
             q = {"userid": uid}
-            upd = {"$set": {"balance": new_balance, "debt": new_debt}}
+            upd = {
+                "$set": {"balance": round(new_balance, 5), "debt": round(new_debt, 5)}
+            }
             userCol.update_one(q, upd)
         # Retrieve other information
         seconds = time - trade["open_date"]  # in seconds
@@ -331,7 +326,7 @@ class User(commands.Cog):
         user = userCol.find_one({"userid": userid})
         _profit = percent + user["total_profit"]
         query = {"userid": userid}
-        update = {"$set": {"total_profit": _profit}}
+        update = {"$set": {"total_profit": round(_profit, 5)}}
         userCol.update_one(query, update)
 
     async def get_open_trades(self, userid, guild_id):
@@ -346,6 +341,7 @@ class User(commands.Cog):
         closed_trades = tradeCol.find(
             {"userid": userid, "isOpen": False, "deleted": False}
         )
+
         return closed_trades
 
     async def get_total_profit(self, userid, guild_id):
@@ -722,13 +718,19 @@ class User(commands.Cog):
             # Adjust quantity if percentage was used.
             if var[1].endswith("%"):
                 user_balance = await self.get_balance(userid, str(ctx.message.guild.id))
-                portion = user_balance * qnum
+                user_total_balance = await self.get_total_balance(
+                    userid, str(ctx.message.guild.id)
+                )
+                user_debt = await self.get_debt(userid, str(ctx.message.guild.id))
+                available_debt_alllowance = (user_total_balance * 0.5) - user_debt
+                portion = available_debt_alllowance * qnum
                 quantity = portion / ticker_price
 
             # Check if the user has enough money for this transaction
-            if self.isAboveDebtLimit(
+            debt_limit = await self.isAboveDebtLimit(
                 userid, ticker_price, quantity, str(ctx.message.guild.id)
-            ):
+            )
+            if debt_limit:
                 embed = discord.Embed(
                     description=f"```\n@{ctx.message.author.name}, cannot exceed 50% Debt to Balance ratio.\n```",
                     color=discord.Color.red(),
@@ -964,7 +966,7 @@ class User(commands.Cog):
         open_trades = await self.get_open_trades(
             ctx.message.author.id, str(ctx.message.guild.id)
         )
-        disc = "```\nType Trade_ID  Ticker Quantity Open_Price  Date/Time  Reason\n\n"
+        disc = f"```\n@{ctx.message.author.name}\nType Trade_ID  Ticker Quantity Open_Price  Date/Time  Reason\n\n"
         for i in open_trades:
             tid = i["_id"]
             ticker = i["ticker"]
@@ -978,12 +980,15 @@ class User(commands.Cog):
                 disc
                 + f"{trade_type.upper()}  {tid}  ${ticker}  {round(quantity,5)}  {round(price,5)}  {date}  {reason}\n\n"
             )
+            if len(disc) + 123 >= 2000:
+                footer = "```"
+                disc = disc + footer
+                await ctx.send(disc)
+                disc = f"```\n@{ctx.message.author.name}\nType Trade_ID  Ticker Quantity Open_Price  Date/Time  Reason\n\n"
+
         footer = "```"
         disc = disc + footer
-        embed = discord.Embed(
-            description=disc,
-            color=discord.Color.blue(),
-        )
+
         await ctx.send(disc)
 
     @commands.command()
@@ -1019,32 +1024,49 @@ class User(commands.Cog):
         closed_trades = await self.get_closed_trades(
             ctx.message.author.id, str(ctx.message.guild.id)
         )
-        disc = "```\nType  Trade_ID  Ticker  Quantity  Open_Price  Close_Price  Profit  Open_Date  Close_date\n\n"
+        disc = f"```\n@{ctx.message.author.name}\nType  Trade_ID  Ticker  Quantity  Open_Price  Close_Price  Profit  Open_Date  Close_date\n\n"
+        counter = 0
+        ct_length = len(list(closed_trades))
+        ct_start = ct_length - 50
+        closed_trades = await self.get_closed_trades(
+            ctx.message.author.id, str(ctx.message.guild.id)
+        )
 
         for i in closed_trades:
-            tid = i["_id"]
-            ticker = i["ticker"]
-            open_price = i["open_price"]
-            closed_price = i["close_price"]
-            percent = i["percent"]
-            profit = round(open_price * percent, 2)
-            open_time = i["open_date"]
-            open_date = time.strftime("%Y-%m-%d %H:%M %Z", time.localtime(open_time))
-            close_time = i["close_date"]
-            close_date = time.strftime("%Y-%m-%d %H:%M %Z", time.localtime(close_time))
-            reason = i["close_reason"]
-            trade_type = i["type"]
-            quantity = i["quantity"]
-            disc = (
-                disc
-                + f"{trade_type.upper()}  {tid}  ${ticker}  {quantity}  {open_price}  {closed_price}  {profit}({round(percent,5)}%)  {open_date}  {close_date}  {reason}\n\n"
-            )
+            if counter < ct_start:
+
+                counter += 1
+            else:
+                tid = i["_id"]
+                ticker = i["ticker"]
+                open_price = i["open_price"]
+                closed_price = i["close_price"]
+                percent = i["percent"]
+                profit = round(open_price * percent, 2)
+                open_time = i["open_date"]
+                open_date = time.strftime(
+                    "%Y-%m-%d %H:%M %Z", time.localtime(open_time)
+                )
+                close_time = i["close_date"]
+                close_date = time.strftime(
+                    "%Y-%m-%d %H:%M %Z", time.localtime(close_time)
+                )
+                reason = i["close_reason"]
+                trade_type = i["type"]
+                quantity = i["quantity"]
+                disc = (
+                    disc
+                    + f"{trade_type.upper()}  {tid}  ${ticker}  {quantity}  {open_price}  {closed_price}  {profit}({round(percent,5)}%)  {open_date}  {close_date}  {reason}\n\n"
+                )
+                if len(disc) + 123 >= 2000:
+                    footer = "```"
+                    disc = disc + footer
+                    await ctx.send(disc)
+                    disc = f"```\n@{ctx.message.author.name}\nType  Trade_ID  Ticker  Quantity  Open_Price  Close_Price  Profit  Open_Date  Close_date\n\n"
+
         footer = "```"
         disc = disc + footer
-        embed = discord.Embed(
-            description=disc,
-            color=discord.Color.blue(),
-        )
+
         await ctx.send(disc)
 
     @commands.command()
@@ -1212,9 +1234,16 @@ class User(commands.Cog):
             # line = f"{rank}. {user}{user_space}${balance}{balance_space}${debt}{debt_space}{total}%{total_space}{trade}\n"
             line = f"{rank}.{user}{user_space}${int(total_balance)}{total_balance_space}${int(debt)}{debt_space}${int(balance)}{balance_space}{round(total,3)}%{total_space}{trade}\n"
             _leaderboard = _leaderboard + line
+            if (len(_leaderboard) + 78) >= 2000:
+                footer = "```"
+                _leaderboard = _leaderboard + footer
+                await ctx.send(_leaderboard)
+                _leaderboard = "```\nUser                Total        Debt        Avail Bal.   Profit   Trades\n"
 
         footer = "```"
         _leaderboard = _leaderboard + footer
+
+        # There is a send limit of 2000 bytes, we want to clear it and continue.
 
         # embed = discord.Embed(description=_leaderboard, title="Trading Leaderboard")
         await ctx.send(_leaderboard)
