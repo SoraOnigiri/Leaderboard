@@ -5,6 +5,12 @@ import requests
 import json
 import time
 from settings import *
+import math
+
+# *******************************************************************
+# print(truncate3(1.987999999999))
+# print(truncate5(1.987129999999))
+# *******************************************************************
 
 
 class User(commands.Cog):
@@ -84,7 +90,7 @@ class User(commands.Cog):
             try:
                 price = float(results[i.lower()]["usd"])
 
-                return round(price, 5)
+                return self.truncate5(price)
             except:
                 continue
 
@@ -157,6 +163,16 @@ class User(commands.Cog):
             if liquidity <= 0:
                 return True
         return False
+
+    def truncate3(self, num):
+        adjusted_num = num * 1000
+        n = math.trunc(adjusted_num)
+        return n / 1000
+
+    def truncate5(self, num):
+        adjusted_num = num * 100000
+        n = math.trunc(adjusted_num)
+        return n / 100000
 
     async def get_long_position(self, userid, guild_id):
         tradeCol, userCol = self.setup(guild_id)
@@ -270,11 +286,11 @@ class User(commands.Cog):
         sale = float(price) * trade["quantity"]
         ticker = trade["ticker"]
         if trade["type"] == "long":
-            profit = round((sale - cost), 5)
-            percent = round((profit / cost) * 100, 5)
+            profit = self.truncate5(sale - cost)
+            percent = self.truncate5((profit / cost) * 100)
         else:  # if not long then short       for a short: open_price is price that it is purchased. sale price is price that it was bought back at.
-            profit = round((cost - sale), 5)
-            percent = round((profit / cost) * 100, 5)
+            profit = self.truncate5((cost - sale))
+            percent = self.truncate5((profit / cost) * 100)
         query = {"_id": tradeid}
         update = {
             "$set": {
@@ -295,7 +311,7 @@ class User(commands.Cog):
             uid = user["userid"]
             new_balance = user["balance"] + (quant * price)
             q = {"userid": uid}
-            upd = {"$set": {"balance": round(new_balance, 5)}}
+            upd = {"$set": {"balance": self.truncate5(new_balance)}}
             userCol.update_one(q, upd)
         elif trade["type"] == "short":
             old_debt = trade["open_price"] * trade["quantity"]
@@ -304,7 +320,10 @@ class User(commands.Cog):
             uid = user["userid"]
             q = {"userid": uid}
             upd = {
-                "$set": {"balance": round(new_balance, 5), "debt": round(new_debt, 5)}
+                "$set": {
+                    "balance": self.truncate5(new_balance),
+                    "debt": self.truncate5(new_debt),
+                }
             }
             userCol.update_one(q, upd)
         # Retrieve other information
@@ -321,12 +340,11 @@ class User(commands.Cog):
             price,
         )
 
-    async def update_profit(self, userid, percent, guild_id):
+    async def update_profit(self, userid, guild_id):
         tradeCol, userCol = self.setup(guild_id)
-        user = userCol.find_one({"userid": userid})
-        _profit = percent + user["total_profit"]
+        total_profit = await self.get_total_profit(userid, guild_id)
         query = {"userid": userid}
-        update = {"$set": {"total_profit": round(_profit, 5)}}
+        update = {"$set": {"total_profit": self.truncate5(total_profit)}}
         userCol.update_one(query, update)
 
     async def get_open_trades(self, userid, guild_id):
@@ -354,7 +372,7 @@ class User(commands.Cog):
 
         percentage = (((balance + long_position - debt) - 100000) / 100000) * 100
 
-        return round(percentage, 2)
+        return self.truncate3(percentage)
 
     async def delete_trade(self, trade_id, guild_id):
         tradeCol, userCol = self.setup(guild_id)
@@ -382,13 +400,10 @@ class User(commands.Cog):
                 close = trade["quantity"] * trade["close_price"]
                 balance = balance - open + close
 
-        new_percent = user["total_profit"] - trade["percent"]
-
         q2 = {"userid": uid}
 
         upd = {
             "$set": {
-                "total_profit": new_percent,
                 "balance": balance,
                 "debt": debt,
             }
@@ -441,6 +456,17 @@ class User(commands.Cog):
             )
             await ctx.send(embed=embed)
             return
+
+    @commands.command()
+    async def patch_total_profits(self, ctx):
+        guildid = str(ctx.message.guild.id)
+        tradeCol, userCol = self.setup(guildid)
+        for user in userCol.find():
+            userid = user["userid"]
+            total_profit = await self.get_total_profit(userid, guildid)
+            query = {"userid": userid}
+            update = {"$set": {"total_profit": total_profit}}
+            userCol.update_one(query, update)
 
     @commands.command()
     async def buy(self, ctx):
@@ -587,7 +613,7 @@ class User(commands.Cog):
                 )
 
             # 6. Give confirmation message
-            message = f"{ctx.message.author.name} has opened a trade with ID: {tradeid}, Ticker: ${ticker.upper()} at Price: ${round(ticker_price,5)}"
+            message = f"{ctx.message.author.name} has opened a trade with ID: {tradeid}, Ticker: ${ticker.upper()} at Price: ${self.truncate5(ticker_price)}"
 
             embed = discord.Embed(
                 description=f"```\n{message}\n```",
@@ -748,9 +774,22 @@ class User(commands.Cog):
                     trade_type,
                     str(ctx.message.guild.id),
                 )
+            # Update total profit to account for new debt
+            try:
+                await self.update_profit(
+                    ctx.message.author.id, str(ctx.message.guild.id)
+                )
+            except:
+                embed = discord.Embed(
+                    description="```\nError: Close Update Function.\n```",
+                    color=discord.Color.red(),
+                )
+                await ctx.send(embed=embed)
+
+                return
 
             # 6. Give confirmation message
-            message = f"{ctx.message.author.name} has opened a trade with ID: {tradeid}, Ticker: ${ticker.upper()} at Price: ${round(ticker_price,5)}"
+            message = f"{ctx.message.author.name} has opened a trade with ID: {tradeid}, Ticker: ${ticker.upper()} at Price: ${self.truncate5(ticker_price)}"
 
             embed = discord.Embed(
                 description=f"```\n{message}\n```",
@@ -906,7 +945,7 @@ class User(commands.Cog):
             # 6. Update total profits for userid += profit
             try:
                 await self.update_profit(
-                    ctx.message.author.id, percent, str(ctx.message.guild.id)
+                    ctx.message.author.id, str(ctx.message.guild.id)
                 )
             except:
                 embed = discord.Embed(
@@ -919,7 +958,7 @@ class User(commands.Cog):
 
             # 7. send: Bot: Trade with ID 0 has been closed, ticker: $SNX profit: 100%, duration of trade: 1 day and 1 hour, with reasoning “My work is done”
             embed = discord.Embed(
-                description=f"```\nTrade with ID: {var[0]} has been closed. \nTicker: ${ticker.upper()}\nProfit: ${profit}({percent}%)\nDuration of trade: {duration}\nQuantity: {round(quantity,5)}\nClose Price: ${round(cp,2)}\nReasoning: '{reason}'\n```",
+                description=f"```\nTrade with ID: {var[0]} has been closed. \nTicker: ${ticker.upper()}\nProfit: ${profit}({percent}%)\nDuration of trade: {duration}\nQuantity: {self.truncate5(quantity)}\nClose Price: ${self.truncate3(cp)}\nReasoning: '{reason}'\n```",
                 color=discord.Color.green(),
             )
             await ctx.send(embed=embed)
@@ -978,7 +1017,7 @@ class User(commands.Cog):
             trade_type = i["type"]
             disc = (
                 disc
-                + f"{trade_type.upper()}  {tid}  ${ticker}  {round(quantity,5)}  {round(price,5)}  {date}  {reason}\n\n"
+                + f"{trade_type.upper()}  {tid}  ${ticker}  {self.truncate5(quantity)}  {self.truncate5(price)}  {date}  {reason}\n\n"
             )
             if len(disc) + 123 >= 2000:
                 footer = "```"
@@ -1042,7 +1081,7 @@ class User(commands.Cog):
                 open_price = i["open_price"]
                 closed_price = i["close_price"]
                 percent = i["percent"]
-                profit = round(open_price * percent, 2)
+                profit = self.truncate3(open_price * percent)
                 open_time = i["open_date"]
                 open_date = time.strftime(
                     "%Y-%m-%d %H:%M %Z", time.localtime(open_time)
@@ -1056,7 +1095,7 @@ class User(commands.Cog):
                 quantity = i["quantity"]
                 disc = (
                     disc
-                    + f"{trade_type.upper()}  {tid}  ${ticker}  {quantity}  {open_price}  {closed_price}  {profit}({round(percent,5)}%)  {open_date}  {close_date}  {reason}\n\n"
+                    + f"{trade_type.upper()}  {tid}  ${ticker}  {quantity}  {open_price}  {closed_price}  {profit}({self.truncate5(percent)}%)  {open_date}  {close_date}  {reason}\n\n"
                 )
                 if len(disc) + 123 >= 2000:
                     footer = "```"
@@ -1186,18 +1225,17 @@ class User(commands.Cog):
             rank += 1
 
             user = i["name"]
-            balance = round(i["balance"], 2)
-            debt = round(i["debt"], 2)
+            balance = self.truncate3(i["balance"])
+            debt = self.truncate3(i["debt"])
 
             long_position = await self.get_long_position(
                 i["userid"], str(ctx.message.guild.id)
             )
 
-            total = round(
-                (((i["balance"] + long_position - i["debt"]) - 100000) / 100000) * 100,
-                2,
-            )
-
+            # total = self.truncate3(
+            #     (((i["balance"] + long_position - i["debt"]) - 100000) / 100000) * 100
+            # )
+            total = i["total_profit"]
             trade = await self.get_trade_number(i["userid"], str(ctx.message.guild.id))
             total_balance = i["balance"] + long_position - i["debt"]
             # Calculate space for User              20
@@ -1214,7 +1252,7 @@ class User(commands.Cog):
                 total_balance_space = total_balance_space + " "
 
             # Calculate space for Total Profit      10 - 10000.000%
-            total_space_num = 10 - len(str(round(total, 3)))
+            total_space_num = 10 - len(str(self.truncate3(total)))
             total_space = ""
             for i in range(total_space_num):
                 total_space = total_space + " "
@@ -1232,7 +1270,7 @@ class User(commands.Cog):
                 debt_space = debt_space + " "
 
             # line = f"{rank}. {user}{user_space}${balance}{balance_space}${debt}{debt_space}{total}%{total_space}{trade}\n"
-            line = f"{rank}.{user}{user_space}${int(total_balance)}{total_balance_space}${int(debt)}{debt_space}${int(balance)}{balance_space}{round(total,3)}%{total_space}{trade}\n"
+            line = f"{rank}.{user}{user_space}${int(total_balance)}{total_balance_space}${int(debt)}{debt_space}${int(balance)}{balance_space}{self.truncate3(total)}%{total_space}{trade}\n"
             _leaderboard = _leaderboard + line
             if (len(_leaderboard) + 78) >= 2000:
                 footer = "```"
@@ -1412,7 +1450,7 @@ class User(commands.Cog):
             total_space = total_space + " "
 
         embed = discord.Embed(
-            description=f"```\nAvailable Balance: ${round(user_balance,5)}\nDebt: {debt_space}${round(debt,5)}\nTotal Balance: {total_space}${round(total,5)}\n```",
+            description=f"```\nAvailable Balance: ${self.truncate5(user_balance)}\nDebt: {debt_space}${self.truncate5(debt)}\nTotal Balance: {total_space}${self.truncate5(total)}\n```",
             color=discord.Color.dark_green(),
             title=f"{ctx.message.author.name}",
         )
