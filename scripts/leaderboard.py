@@ -18,10 +18,12 @@ class User(commands.Cog):
         self.bot = bot
         self.cg_tokens = {}
         self.cg_tokens = self.get_coingecko_tokens()
-        self.trade_channel_id = []
-        self.trade_info_channel_id = []
+        # self.trade_channel_id = []
+        # self.trade_info_channel_id = []
         self.client = ""
         self.get_database()
+        self.trade_channel = os.getenv("TRADE_CHANNEL")
+        self.trade_info_channel = os.getenv("TRADE_INFO_CHANNEL")
 
     def setup(self, guild_id):
         DB = self.client[guild_id]
@@ -90,7 +92,7 @@ class User(commands.Cog):
             try:
                 price = float(results[i.lower()]["usd"])
 
-                return self.truncate5(price)
+                return round(price, 5)
             except:
                 continue
 
@@ -131,6 +133,19 @@ class User(commands.Cog):
             return True
         return False
 
+    def check_short_position(self, trade_id, user_id, guild_id, ticker_price):
+        tradeCol, userCol = self.setup(guild_id)
+        trade = tradeCol.find_one({"_id": trade_id})
+        if trade["type"] == "long":
+            return True
+        user = userCol.find_one({"userid": user_id})
+        balance = user["balance"]
+        cost = ticker_price * trade["quantity"]
+
+        if balance > cost:
+            return True
+        return False
+
     async def isAboveDebtLimit(self, userid, price, quantity, guild_id):
         tradeCol, userCol = self.setup(guild_id)
         user = userCol.find_one({"userid": userid})
@@ -139,7 +154,8 @@ class User(commands.Cog):
         sale = price * quantity
 
         long_position = await self.get_long_position(userid, guild_id)
-
+        if (price * quantity) < 0.0001:
+            return True
         if ((balance + long_position - debt) * 0.5) < (sale):
             return True
         return False
@@ -286,11 +302,11 @@ class User(commands.Cog):
         sale = float(price) * trade["quantity"]
         ticker = trade["ticker"]
         if trade["type"] == "long":
-            profit = self.truncate5(sale - cost)
-            percent = self.truncate5((profit / cost) * 100)
+            profit = round(sale - cost, 5)
+            percent = round((profit / cost) * 100, 3)
         else:  # if not long then short       for a short: open_price is price that it is purchased. sale price is price that it was bought back at.
-            profit = self.truncate5((cost - sale))
-            percent = self.truncate5((profit / cost) * 100)
+            profit = round((cost - sale), 5)
+            percent = round((profit / cost) * 100, 3)
         query = {"_id": tradeid}
         update = {
             "$set": {
@@ -311,7 +327,7 @@ class User(commands.Cog):
             uid = user["userid"]
             new_balance = user["balance"] + (quant * price)
             q = {"userid": uid}
-            upd = {"$set": {"balance": self.truncate5(new_balance)}}
+            upd = {"$set": {"balance": round(new_balance, 5)}}
             userCol.update_one(q, upd)
         elif trade["type"] == "short":
             old_debt = trade["open_price"] * trade["quantity"]
@@ -321,8 +337,8 @@ class User(commands.Cog):
             q = {"userid": uid}
             upd = {
                 "$set": {
-                    "balance": self.truncate5(new_balance),
-                    "debt": self.truncate5(new_debt),
+                    "balance": round(new_balance, 5),
+                    "debt": round(new_debt, 5),
                 }
             }
             userCol.update_one(q, upd)
@@ -344,7 +360,7 @@ class User(commands.Cog):
         tradeCol, userCol = self.setup(guild_id)
         total_profit = await self.get_total_profit(userid, guild_id)
         query = {"userid": userid}
-        update = {"$set": {"total_profit": self.truncate5(total_profit)}}
+        update = {"$set": {"total_profit": round(total_profit, 5)}}
         userCol.update_one(query, update)
 
     async def get_open_trades(self, userid, guild_id):
@@ -372,7 +388,7 @@ class User(commands.Cog):
 
         percentage = (((balance + long_position - debt) - 100000) / 100000) * 100
 
-        return self.truncate3(percentage)
+        return round(percentage, 3)
 
     async def delete_trade(self, trade_id, guild_id):
         tradeCol, userCol = self.setup(guild_id)
@@ -425,9 +441,14 @@ class User(commands.Cog):
     async def join(self, ctx):
         if not self.isTradingPost(str(ctx.message.guild.id)):
             return
+            # if (
+            #     ctx.message.channel.id not in self.trade_channel_id
+            #     and ctx.message.channel.id not in self.trade_info_channel_id
+            # ):
+            # return
         if (
-            ctx.message.channel.id not in self.trade_channel_id
-            and ctx.message.channel.id not in self.trade_info_channel_id
+            ctx.message.channel.name not in self.trade_channel
+            and ctx.message.channel.name not in self.trade_info_channel
         ):
             return
         if self.isInitialized(ctx.message.author.id, str(ctx.message.guild.id)):
@@ -472,7 +493,9 @@ class User(commands.Cog):
     async def buy(self, ctx):
         if not self.isTradingPost(str(ctx.message.guild.id)):
             return
-        if ctx.message.channel.id not in self.trade_channel_id:
+        # if ctx.message.channel.id not in self.trade_channel_id:
+        #     return
+        if ctx.message.channel.name not in self.trade_channel:
             return
         if not self.isInitialized(ctx.message.author.id, str(ctx.message.guild.id)):
             embed = discord.Embed(
@@ -613,7 +636,7 @@ class User(commands.Cog):
                 )
 
             # 6. Give confirmation message
-            message = f"{ctx.message.author.name} has opened a trade with ID: {tradeid}, Ticker: ${ticker.upper()} at Price: ${self.truncate5(ticker_price)}"
+            message = f"{ctx.message.author.name} has opened a trade with ID: {tradeid}, Ticker: ${ticker.upper()} at Price: ${round(ticker_price,5)}"
 
             embed = discord.Embed(
                 description=f"```\n{message}\n```",
@@ -633,7 +656,9 @@ class User(commands.Cog):
     async def sell(self, ctx):
         if not self.isTradingPost(str(ctx.message.guild.id)):
             return
-        if ctx.message.channel.id not in self.trade_channel_id:
+        # if ctx.message.channel.id not in self.trade_channel_id:
+        #     return
+        if ctx.message.channel.name not in self.trade_channel:
             return
         if not self.isInitialized(ctx.message.author.id, str(ctx.message.guild.id)):
             embed = discord.Embed(
@@ -789,7 +814,7 @@ class User(commands.Cog):
                 return
 
             # 6. Give confirmation message
-            message = f"{ctx.message.author.name} has opened a trade with ID: {tradeid}, Ticker: ${ticker.upper()} at Price: ${self.truncate5(ticker_price)}"
+            message = f"{ctx.message.author.name} has opened a trade with ID: {tradeid}, Ticker: ${ticker.upper()} at Price: ${round(ticker_price,5)}"
 
             embed = discord.Embed(
                 description=f"```\n{message}\n```",
@@ -809,7 +834,9 @@ class User(commands.Cog):
     async def close(self, ctx):
         if not self.isTradingPost(str(ctx.message.guild.id)):
             return
-        if ctx.message.channel.id not in self.trade_channel_id:
+        # if ctx.message.channel.id not in self.trade_channel_id:
+        #     return
+        if ctx.message.channel.name not in self.trade_channel:
             return
         if not self.isInitialized(ctx.message.author.id, str(ctx.message.guild.id)):
             embed = discord.Embed(
@@ -915,6 +942,19 @@ class User(commands.Cog):
             # except:
             #     reason = ""
 
+            # Before closing a short (sell) position, check if the available balance is enough to pay off the debt.
+            if not self.check_short_position(
+                int(var[0]),
+                ctx.message.author.id,
+                str(ctx.message.guild.id),
+                close_price,
+            ):
+                embed = discord.Embed(
+                    description=f"```\n{ctx.message.author.name}, you do not have the funds to close this short position.\n```",
+                    color=discord.Color.red(),
+                )
+                await ctx.send(embed=embed)
+                return
             # 5. Call the close_trade function using tradeid, price, and reason.
             try:
                 close_time = int(time.time())
@@ -958,7 +998,7 @@ class User(commands.Cog):
 
             # 7. send: Bot: Trade with ID 0 has been closed, ticker: $SNX profit: 100%, duration of trade: 1 day and 1 hour, with reasoning “My work is done”
             embed = discord.Embed(
-                description=f"```\nTrade with ID: {var[0]} has been closed. \nTicker: ${ticker.upper()}\nProfit: ${profit}({percent}%)\nDuration of trade: {duration}\nQuantity: {self.truncate5(quantity)}\nClose Price: ${self.truncate3(cp)}\nReasoning: '{reason}'\n```",
+                description=f"```\nTrade with ID: {var[0]} has been closed. \nTicker: ${ticker.upper()}\nProfit: ${profit}({percent}%)\nDuration of trade: {duration}\nQuantity: {round(quantity,5)}\nClose Price: ${round(cp,3)}\nReasoning: '{reason}'\n```",
                 color=discord.Color.green(),
             )
             await ctx.send(embed=embed)
@@ -975,7 +1015,8 @@ class User(commands.Cog):
     async def open_trades(self, ctx):
         if not self.isTradingPost(str(ctx.message.guild.id)):
             return
-        if not ctx.message.channel.id in self.trade_info_channel_id:
+        # if not ctx.message.channel.id in self.trade_info_channel_id:
+        if not ctx.message.channel.name in self.trade_info_channel:
             return
         if not self.isInitialized(ctx.message.author.id, str(ctx.message.guild.id)):
             embed = discord.Embed(
@@ -1017,7 +1058,7 @@ class User(commands.Cog):
             trade_type = i["type"]
             disc = (
                 disc
-                + f"{trade_type.upper()}  {tid}  ${ticker}  {self.truncate5(quantity)}  {self.truncate5(price)}  {date}  {reason}\n\n"
+                + f"{trade_type.upper()}  {tid}  ${ticker}  {round(quantity,5)}  {round(price,5)}  {date}  {reason}\n\n"
             )
             if len(disc) + 123 >= 2000:
                 footer = "```"
@@ -1034,7 +1075,8 @@ class User(commands.Cog):
     async def closed_trades(self, ctx):
         if not self.isTradingPost(str(ctx.message.guild.id)):
             return
-        if not ctx.message.channel.id in self.trade_info_channel_id:
+        # if not ctx.message.channel.id in self.trade_info_channel_id:
+        if not ctx.message.channel.name in self.trade_info_channel:
             return
         if not self.isInitialized(ctx.message.author.id, str(ctx.message.guild.id)):
             embed = discord.Embed(
@@ -1081,7 +1123,7 @@ class User(commands.Cog):
                 open_price = i["open_price"]
                 closed_price = i["close_price"]
                 percent = i["percent"]
-                profit = self.truncate3(open_price * percent)
+                profit = round(open_price * percent, 3)
                 open_time = i["open_date"]
                 open_date = time.strftime(
                     "%Y-%m-%d %H:%M %Z", time.localtime(open_time)
@@ -1095,7 +1137,7 @@ class User(commands.Cog):
                 quantity = i["quantity"]
                 disc = (
                     disc
-                    + f"{trade_type.upper()}  {tid}  ${ticker}  {quantity}  {open_price}  {closed_price}  {profit}({self.truncate5(percent)}%)  {open_date}  {close_date}  {reason}\n\n"
+                    + f"{trade_type.upper()}  {tid}  ${ticker}  {quantity}  {open_price}  {closed_price}  {profit}({round(percent,5)}%)  {open_date}  {close_date}  {reason}\n\n"
                 )
                 if len(disc) + 123 >= 2000:
                     footer = "```"
@@ -1112,7 +1154,8 @@ class User(commands.Cog):
     async def total_profit(self, ctx):
         if not self.isTradingPost(str(ctx.message.guild.id)):
             return
-        if not ctx.message.channel.id in self.trade_info_channel_id:
+        # if not ctx.message.channel.id in self.trade_info_channel_id:
+        if not ctx.message.channel.name in self.trade_info_channel:
             return
         if not self.isInitialized(ctx.message.author.id, str(ctx.message.guild.id)):
             embed = discord.Embed(
@@ -1134,7 +1177,9 @@ class User(commands.Cog):
     async def delete(self, ctx):
         if not self.isTradingPost(str(ctx.message.guild.id)):
             return
-        if ctx.message.channel.id not in self.trade_channel_id:
+        # if ctx.message.channel.id not in self.trade_channel_id:
+        #     return
+        if ctx.message.channel.name not in self.trade_channel:
             return
         if not self.isInitialized(ctx.message.author.id, str(ctx.message.guild.id)):
             embed = discord.Embed(
@@ -1208,7 +1253,8 @@ class User(commands.Cog):
     async def leaderboard(self, ctx):
         if not self.isTradingPost(str(ctx.message.guild.id)):
             return
-        if not ctx.message.channel.id in self.trade_info_channel_id:
+        # if not ctx.message.channel.id in self.trade_info_channel_id:
+        if not ctx.message.channel.name in self.trade_info_channel:
             return
         users = await self.trade_leaderboard(
             str(ctx.message.guild.id)
@@ -1225,19 +1271,19 @@ class User(commands.Cog):
             rank += 1
 
             user = i["name"]
-            balance = self.truncate3(i["balance"])
-            debt = self.truncate3(i["debt"])
+            balance = round(i["balance"], 5)
+            debt = round(i["debt"], 5)
 
             long_position = await self.get_long_position(
                 i["userid"], str(ctx.message.guild.id)
             )
 
-            # total = self.truncate3(
+            # total = round(
             #     (((i["balance"] + long_position - i["debt"]) - 100000) / 100000) * 100
             # )
             total = i["total_profit"]
             trade = await self.get_trade_number(i["userid"], str(ctx.message.guild.id))
-            total_balance = i["balance"] + long_position - i["debt"]
+            total_balance = balance + long_position - debt
             # Calculate space for User              20
             user_space_num = 19 - len(user) - len(str(rank))
 
@@ -1252,7 +1298,7 @@ class User(commands.Cog):
                 total_balance_space = total_balance_space + " "
 
             # Calculate space for Total Profit      10 - 10000.000%
-            total_space_num = 10 - len(str(self.truncate3(total)))
+            total_space_num = 10 - len(str(round(total, 3)))
             total_space = ""
             for i in range(total_space_num):
                 total_space = total_space + " "
@@ -1270,7 +1316,7 @@ class User(commands.Cog):
                 debt_space = debt_space + " "
 
             # line = f"{rank}. {user}{user_space}${balance}{balance_space}${debt}{debt_space}{total}%{total_space}{trade}\n"
-            line = f"{rank}.{user}{user_space}${int(total_balance)}{total_balance_space}${int(debt)}{debt_space}${int(balance)}{balance_space}{self.truncate3(total)}%{total_space}{trade}\n"
+            line = f"{rank}.{user}{user_space}${int(total_balance)}{total_balance_space}${int(debt)}{debt_space}${int(balance)}{balance_space}{round(total,3)}%{total_space}{trade}\n"
             _leaderboard = _leaderboard + line
             if (len(_leaderboard) + 78) >= 2000:
                 footer = "```"
@@ -1304,13 +1350,19 @@ class User(commands.Cog):
         if not self.isTradingPost(str(ctx.message.guild.id)):
 
             return
-        if (
-            ctx.message.channel.id not in self.trade_channel_id
-            and ctx.message.channel.id not in self.trade_info_channel_id
-        ):
+        # if (
+        #     ctx.message.channel.id not in self.trade_channel_id
+        #     and ctx.message.channel.id not in self.trade_info_channel_id
+        # ):
 
+        #     return
+        if (
+            ctx.message.channel.name not in self.trade_channel
+            and ctx.message.channel.name not in self.trade_info_channel
+        ):
             return
-        if ctx.message.channel.id in self.trade_channel_id:
+        # if ctx.message.channel.id in self.trade_channel_id:
+        if ctx.message.channel.name in self.trade_channel:
             with open("trade_commands.txt", "r") as bcmd:
                 results = bcmd.readlines()
                 blurb = ""
@@ -1324,7 +1376,9 @@ class User(commands.Cog):
                 await ctx.send(embed=embed)
             return
 
-        if ctx.message.channel.id in self.trade_info_channel_id:
+        # if ctx.message.channel.id in self.trade_info_channel_id:
+        if ctx.message.channel.name in self.trade_info_channel:
+            print("match trade info channel")
             with open("trade_info_commands.txt", "r") as bcmd:
                 results = bcmd.readlines()
                 blurb = ""
@@ -1346,41 +1400,41 @@ class User(commands.Cog):
             db["TRADES"].insert_one({"count": 0})
             await ctx.send("Welcome Apes to the Trading Game.\n\n")
 
-    @commands.command()
-    async def set_trade_channel(self, ctx):
-        if not self.isTradingPost(str(ctx.message.guild.id)):
-            return
-        if ctx.message.channel.id not in self.trade_channel_id:
-            self.trade_channel_id.append(ctx.message.channel.id)
-            await ctx.send("Trade Channel has been added.")
+    # @commands.command()
+    # async def set_trade_channel(self, ctx):
+    #     if not self.isTradingPost(str(ctx.message.guild.id)):
+    #         return
+    #     if ctx.message.channel.id not in self.trade_channel_id:
+    #         self.trade_channel_id.append(ctx.message.channel.id)
+    #         await ctx.send("Trade Channel has been added.")
 
-    @commands.command()
-    async def set_trade_info_channel(self, ctx):
-        if not self.isTradingPost(str(ctx.message.guild.id)):
-            return
-        if ctx.message.channel.id not in self.trade_info_channel_id:
-            self.trade_info_channel_id.append(ctx.message.channel.id)
-            await ctx.send("Trade Info Channel has been added.")
+    # @commands.command()
+    # async def set_trade_info_channel(self, ctx):
+    #     if not self.isTradingPost(str(ctx.message.guild.id)):
+    #         return
+    #     if ctx.message.channel.id not in self.trade_info_channel_id:
+    #         self.trade_info_channel_id.append(ctx.message.channel.id)
+    #         await ctx.send("Trade Info Channel has been added.")
 
-    @commands.command()
-    async def remove_trade_channel(self, ctx):
-        if not self.isTradingPost(str(ctx.message.guild.id)):
-            return
-        try:
-            self.trade_channel_id.remove(ctx.message.channel.id)
-            await ctx.send("Trade Channel removed.")
-        except:
-            pass
+    # @commands.command()
+    # async def remove_trade_channel(self, ctx):
+    #     if not self.isTradingPost(str(ctx.message.guild.id)):
+    #         return
+    #     try:
+    #         self.trade_channel_id.remove(ctx.message.channel.id)
+    #         await ctx.send("Trade Channel removed.")
+    #     except:
+    #         pass
 
-    @commands.command()
-    async def remove_trade_info_channel(self, ctx):
-        if not self.isTradingPost(str(ctx.message.guild.id)):
-            return
-        try:
-            self.trade_info_channel_id.remove(ctx.message.channel.id)
-            await ctx.send("Trade Info Channel has been removed.")
-        except:
-            pass
+    # @commands.command()
+    # async def remove_trade_info_channel(self, ctx):
+    #     if not self.isTradingPost(str(ctx.message.guild.id)):
+    #         return
+    #     try:
+    #         self.trade_info_channel_id.remove(ctx.message.channel.id)
+    #         await ctx.send("Trade Info Channel has been removed.")
+    #     except:
+    #         pass
 
     # @commands.command()
     # async def end_game(self, ctx):  # End game in server     ==> Close every transaction with auto find prices, if not found, then 0. Produce leaderboard
@@ -1393,12 +1447,16 @@ class User(commands.Cog):
         if not self.isTradingPost(str(ctx.message.guild.id)):
             return
 
+        # if (
+        #     ctx.message.channel.id not in self.trade_channel_id
+        #     and ctx.message.channel.id not in self.trade_info_channel_id
+        # ):
+        #     return
         if (
-            ctx.message.channel.id not in self.trade_channel_id
-            and ctx.message.channel.id not in self.trade_info_channel_id
+            ctx.message.channel.name not in self.trade_channel
+            and ctx.message.channel.name not in self.trade_info_channel
         ):
             return
-
         if not self.isInitialized(ctx.message.author.id, str(ctx.message.guild.id)):
             embed = discord.Embed(
                 description=f"```\nYou must first type '!join' to participate in the trading leaderboard.\n```",
@@ -1450,7 +1508,7 @@ class User(commands.Cog):
             total_space = total_space + " "
 
         embed = discord.Embed(
-            description=f"```\nAvailable Balance: ${self.truncate5(user_balance)}\nDebt: {debt_space}${self.truncate5(debt)}\nTotal Balance: {total_space}${self.truncate5(total)}\n```",
+            description=f"```\nAvailable Balance: ${round(user_balance,5)}\nDebt: {debt_space}${round(debt,5)}\nTotal Balance: {total_space}${round(total,5)}\n```",
             color=discord.Color.dark_green(),
             title=f"{ctx.message.author.name}",
         )
