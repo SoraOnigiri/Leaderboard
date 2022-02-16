@@ -378,17 +378,30 @@ class User(commands.Cog):
 
         return closed_trades
 
-    async def get_total_profit(self, userid, guild_id):
+    async def get_user_total_profit(self, userid, guild_id):
         tradeCol, userCol = self.setup(guild_id)
         user = userCol.find_one({"userid": userid})
-        balance = user["balance"]
-        debt = user["debt"]
+        return user["total_profit"]
 
-        long_position = await self.get_long_position(userid, guild_id)
-
-        percentage = (((balance + long_position - debt) - 100000) / 100000) * 100
-
-        return round(percentage, 3)
+    async def get_total_profit(self, userid, guild_id):
+        try:
+            tradeCol, userCol = self.setup(guild_id)
+            total_profit = 0
+            closed_trades = tradeCol.find(
+                {"userid": userid, "isOpen": False, "deleted": False}
+            )
+            length = len(list(closed_trades))
+            closed_trades = tradeCol.find(
+                {"userid": userid, "isOpen": False, "deleted": False}
+            )
+            if length > 0:
+                for trade_position in closed_trades:
+                    total_profit = total_profit + trade_position["profit"]
+            percentage = (round(total_profit, 5) / 100000) * 100
+            return round(percentage, 3)
+        except Exception as e:
+            print(e)
+            return 0
 
     async def delete_trade(self, trade_id, guild_id):
         tradeCol, userCol = self.setup(guild_id)
@@ -400,8 +413,6 @@ class User(commands.Cog):
         user = userCol.find_one({"userid": uid})
         balance = user["balance"]
         debt = user["debt"]
-        transaction_profit_percentage = trade["percent"]
-        user_profit_percentage = user["total_profit"]
         if trade["type"] == "long":
             if trade["isOpen"]:
                 balance = balance + (trade["quantity"] * trade["open_price"])
@@ -417,7 +428,7 @@ class User(commands.Cog):
                 open = trade["quantity"] * trade["open_price"]
                 close = trade["quantity"] * trade["close_price"]
                 balance = balance - open + close
-        total_profit_percentage = user_profit_percentage - transaction_profit_percentage
+        total_profit_percentage = await self.get_total_profit(uid, guild_id)
         q2 = {"userid": uid}
 
         upd = {
@@ -616,7 +627,7 @@ class User(commands.Cog):
             if var[1].endswith("%"):
                 user_balance = await self.get_balance(userid, str(ctx.message.guild.id))
                 portion = user_balance * qnum
-                quantity = portion / ticker_price
+                quantity = round(portion / ticker_price, 5)
 
             # Check if the user has enough money for this transaction
             if self.isPoor(userid, ticker_price, quantity, str(ctx.message.guild.id)):
@@ -807,7 +818,8 @@ class User(commands.Cog):
                 await self.update_profit(
                     ctx.message.author.id, str(ctx.message.guild.id)
                 )
-            except:
+            except Exception as e:
+                print(e)
                 embed = discord.Embed(
                     description="```\nError: Close Update Function.\n```",
                     color=discord.Color.red(),
@@ -1167,7 +1179,7 @@ class User(commands.Cog):
             )
             await ctx.send(embed=embed)
             return
-        total_profit = await self.get_total_profit(
+        total_profit = await self.get_user_total_profit(
             ctx.message.author.id, str(ctx.message.guild.id)
         )
         embed = discord.Embed(
@@ -1195,15 +1207,6 @@ class User(commands.Cog):
         # 1. Split content
         try:
             content = ctx.message.content.split(" ", 1)[1]
-
-            # # 2. Validate the command
-            # if len(content) == 1:
-            #     embed = discord.Embed(
-            #         description="```\n!delete [Trade ID]\n```",
-            #         color=discord.Color.red(),
-            #     )
-            #     await ctx.send(embed=embed)
-            #     return
 
             # 3. Validate the trade id
             try:
