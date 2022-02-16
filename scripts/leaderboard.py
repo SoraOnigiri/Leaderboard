@@ -400,6 +400,8 @@ class User(commands.Cog):
         user = userCol.find_one({"userid": uid})
         balance = user["balance"]
         debt = user["debt"]
+        transaction_profit_percentage = trade["percent"]
+        user_profit_percentage = user["total_profit"]
         if trade["type"] == "long":
             if trade["isOpen"]:
                 balance = balance + (trade["quantity"] * trade["open_price"])
@@ -415,13 +417,14 @@ class User(commands.Cog):
                 open = trade["quantity"] * trade["open_price"]
                 close = trade["quantity"] * trade["close_price"]
                 balance = balance - open + close
-
+        total_profit_percentage = user_profit_percentage - transaction_profit_percentage
         q2 = {"userid": uid}
 
         upd = {
             "$set": {
                 "balance": balance,
                 "debt": debt,
+                "total_profit": total_profit_percentage,
             }
         }
         userCol.update_one(q2, upd)
